@@ -99,6 +99,8 @@ describe("server routing", () => {
     expect(body.models[1].default_reasoning_level).toBe("max");
     expect(body.models[0].context_window).toBe(200_000);
     expect(body.models[1].context_window).toBe(1_048_576);
+    expect(body.models[0].max_tokens).toBe(131_072);
+    expect(body.models[1].max_tokens).toBe(131_072);
   });
 
   it("GET /v1/models with anthropic-version returns Anthropic capabilities", async () => {

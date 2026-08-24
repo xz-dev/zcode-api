@@ -367,3 +367,33 @@ describe("transformRequestBody — catalog [1m] aliases", () => {
     expect(transformRequestBody(body, { format: "openai" })).toBe(body);
   });
 });
+
+describe("transformRequestBody — output cap 1210", () => {
+  it("clamps OpenAI max_tokens above glm-5.3 output cap", () => {
+    const body = JSON.stringify({ model: "glm-5.3", max_tokens: 200_000, messages: [] });
+    const parsed = JSON.parse(transformRequestBody(body, { format: "openai" }) as string);
+    expect(parsed.max_tokens).toBe(131_072);
+  });
+
+  it("clamps Anthropic max_tokens on [1m] aliases after model strip", () => {
+    const body = JSON.stringify({
+      model: "glm-5.3[1m]",
+      max_tokens: 1_048_576,
+      messages: [{ role: "user", content: "hi" }],
+    });
+    const parsed = JSON.parse(transformRequestBody(body, { format: "anthropic" }) as string);
+    expect(parsed.model).toBe("glm-5.3");
+    expect(parsed.max_tokens).toBe(131_072);
+  });
+
+  it("clamps max_output_tokens used by Responses clients", () => {
+    const body = JSON.stringify({ model: "glm-5.3", max_output_tokens: 200_000, messages: [] });
+    const parsed = JSON.parse(transformRequestBody(body, { format: "openai" }) as string);
+    expect(parsed.max_output_tokens).toBe(131_072);
+  });
+
+  it("leaves max_tokens at or below the catalog cap", () => {
+    const body = JSON.stringify({ model: "glm-5.3", max_tokens: 4096, messages: [] });
+    expect(transformRequestBody(body, { format: "openai" })).toBe(body);
+  });
+});

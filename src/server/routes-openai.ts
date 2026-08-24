@@ -57,6 +57,9 @@ function codexModel(id: string, model: ModelDef): Record<string, unknown> {
     truncation_policy: { mode: "bytes", limit: 10_000 },
     context_window: catalogContextWindow(id, model),
     max_context_window: catalogContextWindow(id, model),
+    // Clients that omit output caps fall back to context_window and Z.AI 1210s
+    // max_tokens outside [1, 131072]. Never advertise the context window here.
+    max_tokens: model.maxOutputTokens,
     effective_context_window_percent: 95,
     supports_parallel_tool_calls: true,
     experimental_supported_tools: [],
