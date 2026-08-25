@@ -637,6 +637,29 @@ describe("proxyRequest — OpenAI translation mode (coding-plan → Anthropic up
     usage: { input_tokens: 10, output_tokens: 3 },
   });
 
+  it("translates then clamps oversized Chat max_tokens before Anthropic upstream", async () => {
+    const fetchMock = mock(async (req: Request): Promise<Response> => {
+      const reqBody = JSON.parse(await req.text());
+      expect(reqBody.model).toBe("glm-5.3");
+      expect(reqBody.max_tokens).toBe(120_000);
+      expect(reqBody.messages[0].content[0].text).toBe("Hi");
+      return new Response(ANTHROPIC_RESPONSE, { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const auth = new AuthManager({ mode: "apikey", provider: "zai", apiKey: "testkey.testsecret" });
+    const clientReq = makeOpenAIReq(JSON.stringify({
+      model: "glm-5.3",
+      max_tokens: 200_000,
+      messages: [{ role: "user", content: "Hi" }],
+    }));
+
+    const resp = await proxyRequest(clientReq, "openai", {
+      config: { ...testConfig, defaultModel: "glm-5.3", models: ["glm-5.3"] },
+      auth,
+      fetchImpl: fetchMock as any,
+    });
+    expect(resp.status).toBe(200);
+  });
+
   it("routes OpenAI client request to the Anthropic upstream endpoint", async () => {
     const fetchMock = mock(async (req: Request): Promise<Response> => {
       expect(req.url).toBe("https://api.z.ai/api/anthropic/v1/messages");
@@ -1009,6 +1032,32 @@ describe("proxyRequest — Anthropic compatibility mode (coding-plan)", () => {
   async: { enabled: false, origin: "https://zcode.z.ai", pollIntervalMs: 5000, keepAliveIntervalMs: 3000, maxWaitMs: 0, maxRetries: 3, settleTimeoutMs: 8000, controlTimeoutMs: 15000, defaultModel: "" },
   logging: { level: "info" },
   };
+
+  it("coding-plan Anthropic request clamps oversized max_tokens before native upstream", async () => {
+    const fetchMock = mock(async (req: Request): Promise<Response> => {
+      const reqBody = JSON.parse(await req.text());
+      expect(reqBody.model).toBe("glm-5.3");
+      expect(reqBody.max_tokens).toBe(120_000);
+      return new Response(JSON.stringify({
+        id: "msg_cap",
+        type: "message",
+        role: "assistant",
+        model: "glm-5.3",
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const auth = new AuthManager({ mode: "apikey", provider: "zai", apiKey: "testkey.testsecret" });
+    const resp = await proxyRequest(makeClientReq(JSON.stringify({
+      model: "glm-5.3",
+      max_tokens: 200_000,
+      messages: [{ role: "user", content: "hi" }],
+    })), "anthropic", { config: { ...testConfig, defaultModel: "glm-5.3", models: ["glm-5.3"] }, auth, fetchImpl: fetchMock as any });
+
+    expect(resp.status).toBe(200);
+  });
 
   it("Anthropic client request passes through to the native Anthropic upstream", async () => {
     const fetchMock = mock(async (req: Request, init?: RequestInit & { decompress?: boolean }): Promise<Response> => {

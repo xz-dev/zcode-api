@@ -24,6 +24,8 @@ export interface ModelDef {
   name: string;
   contextWindow: number;
   maxOutputTokens?: number;
+  /** Proxy-enforced client/operational cap; not the upstream architectural maximum. */
+  operationalMaxOutputTokens?: number;
   /** Whether the model supports reasoning/thinking mode. */
   reasoning?: boolean;
 }

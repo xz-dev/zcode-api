@@ -16,11 +16,17 @@
  *      is safe and matches ZCode's `applyCacheControl: true` default.
  *   4. Anthropic format + `ctx.userId` set → inject `metadata: { user_id }`.
  *      Mirrors `user_id: B.metadata.userId` at bundle offset ~4760586.
+ *   5. Clamp output-token fields present at this shared upstream boundary to
+ *      an explicit operational cap. Endpoint parsing/translation remains the
+ *      authority for which client fields reach this boundary.
  *
  * @see _reverse/NOTEPAD.md "How Credential is Used for LLM Calls"
  */
 import type { Format } from "../translator/types.js";
+import { MODELS } from "../provider/models.js";
 import { buildStartPlanSystem } from "./system-prompt.js";
+
+const OUTPUT_CAP_FIELDS = ["max_tokens", "max_output_tokens", "max_completion_tokens"] as const;
 
 interface TransformContext {
   format: Format;
@@ -45,16 +51,16 @@ export function transformRequestBody(body: string | undefined, ctx: TransformCon
   }
   if (typeof parsed !== "object" || parsed === null) return body;
 
-  let modified = false;
+  const obj = parsed as Record<string, unknown>;
+  let modified = applyOperationalOutputCap(obj);
 
   if (ctx.format === "openai") {
     if (ctx.startPlan) {
-      modified = applyStartPlanOpenAISystem(parsed as Record<string, unknown>) || modified;
+      modified = applyStartPlanOpenAISystem(obj) || modified;
     }
-    modified = applyStreamOptionsIncludeUsage(parsed as Record<string, unknown>) || modified;
+    modified = applyStreamOptionsIncludeUsage(obj) || modified;
   }
   if (ctx.format === "anthropic") {
-    const obj = parsed as Record<string, unknown>;
     if (ctx.startPlan) {
       modified = applyStartPlanSystem(obj) || modified;
     }
@@ -65,6 +71,23 @@ export function transformRequestBody(body: string | undefined, ctx: TransformCon
   }
 
   return modified ? JSON.stringify(parsed) : body;
+}
+
+/** Clamp recognized output fields that survived endpoint translation. */
+function applyOperationalOutputCap(body: Record<string, unknown>): boolean {
+  if (typeof body.model !== "string") return false;
+  const cap = MODELS.find((model) => model.id === body.model)?.operationalMaxOutputTokens;
+  if (cap === undefined) return false;
+
+  let modified = false;
+  for (const field of OUTPUT_CAP_FIELDS) {
+    const value = body[field];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0 && value > cap) {
+      body[field] = cap;
+      modified = true;
+    }
+  }
+  return modified;
 }
 
 /** OpenAI streaming: ensure `stream_options.include_usage: true`. */

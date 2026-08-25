@@ -46,13 +46,20 @@ describe("models", () => {
     ]);
   });
 
-  it("all models have valid id and contextWindow", () => {
+  it("all models have valid id, contextWindow, and existing output values", () => {
     for (const m of MODELS) {
       expect(typeof m.id).toBe("string");
       expect(m.id.length).toBeGreaterThan(0);
       expect(m.contextWindow).toBeGreaterThan(0);
-      expect(m.maxOutputTokens).toBe(128_000);
+      expect(m.maxOutputTokens).toBe(m.id === "glm-5.3" ? 131_072 : 128_000);
     }
+  });
+
+  it("distinguishes glm-5.3 upstream maximum from proxy operational cap", () => {
+    const glm53 = MODELS.find((m) => m.id === "glm-5.3");
+    expect(glm53?.maxOutputTokens).toBe(131_072);
+    expect(glm53?.operationalMaxOutputTokens).toBe(120_000);
+    expect(MODELS.filter((m) => m.operationalMaxOutputTokens !== undefined).map((m) => m.id)).toEqual(["glm-5.3"]);
   });
 
   it("all models except glm-5.2/glm-5.3 have 200k context", () => {

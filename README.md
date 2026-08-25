@@ -323,22 +323,19 @@ services:
 
 ## Available Models
 
-The proxy lists these models on `GET /v1/models` (pinned to the GLM coding-plan tier):
+The ordinary `GET /v1/models` response keeps the existing pinned model IDs for
+OpenAI-compatible clients. `GET /v1/models?client_version=...` returns only
+independently audited metadata; it deliberately omits legacy context windows,
+modalities, other models' output limits, and reasoning effort tiers rather than
+promoting stale catalog values as fresh authority.
 
-| Model | Context | Max Output |
-|-------|---------|------------|
-| `glm-4.5-air` | 200K | 128K |
-| `glm-4.6` | 200K | 128K |
-| `glm-4.6v` | 200K | 128K |
-| `glm-4.7` | 200K | 128K |
-| `glm-5` | 200K | 128K |
-| `glm-5-turbo` | 200K | 128K |
-| `glm-5v-turbo` | 200K | 128K |
-| `glm-5.1` | 200K | 128K |
-| `glm-5.2` | 1M | 128K |
-| `glm-5.3` | 1M | 128K |
+| Audited Model | Official Upstream Max Output | Proxy Operational Cap |
+|---------------|------------------------------|-----------------------|
+| `glm-5.3` | 131,072 | 120,000 |
 
-Requests for models not in this list are still forwarded upstream — the listing is informational, not a gate.
+GLM-5.3's official upstream architectural output maximum is 131,072 tokens. This proxy advertises and clamps a conservative 120,000-token production operational cap; 120,000 is not the model's hard architectural limit.
+
+Endpoint semantics: Chat Completions, Anthropic Messages, and both async routes send final upstream `max_tokens`, which is clamped when oversized. Responses accepts `max_output_tokens`; existing translation maps it to upstream `max_tokens` before the same clamp. Unsupported raw Chat fields are not added by this patch.
 
 ## License
 

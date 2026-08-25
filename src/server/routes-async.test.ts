@@ -56,6 +56,7 @@ function makeOauthAuth(jwt: string = "the-jwt"): AuthManager {
 interface MockServerOpts {
   initialTicketState?: "queued" | "ready";
   queueProgression?: ("queued" | "ready" | "expired" | "not_found")[];
+  onLlmRequest?: (body: Record<string, unknown>) => void;
   /** First LLM call emits a 200 SSE whose FIRST event is `event:error` with the marker.
    *  Bridge detects pre-commit (no client-visible output yet) → transparent retry. */
   midStreamExpiredPreCommit?: boolean;
@@ -111,6 +112,7 @@ function makeMockFetch(opts: MockServerOpts): typeof fetch {
     if (u.endsWith("/api/v1/off-peak/anthropic/v1/messages") && method === "POST") {
       state.llmCounter++;
       const reqBody = JSON.parse((init?.body as string) ?? "{}");
+      opts.onLlmRequest?.(reqBody);
 
       if (opts.llmStatusOverride && opts.llmStatusOverride !== 200) {
         return new Response(JSON.stringify({ type: "error", error: { type: "api_error", message: "forced upstream error" } }), {
@@ -253,6 +255,26 @@ describe("/async/* routing", () => {
 });
 
 describe("/async/v1/messages (Anthropic)", () => {
+  it("clamps oversized max_tokens before bridging Anthropic request upstream", async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    const counters = { takeCount: { value: 0 }, settleCount: { value: 0 } };
+    const handler = createFetchHandler({
+      config: makeConfig({ defaultModel: "glm-5.3", models: ["glm-5.3"] }),
+      auth: makeOauthAuth(),
+      fetchImpl: makeMockFetch({ ...counters, onLlmRequest: (body) => { upstreamBody = body; } }),
+    });
+
+    const resp = await handler(new Request("http://localhost/async/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "glm-5.3", messages: [{ role: "user", content: "hi" }], max_tokens: 200_000 }),
+    }));
+
+    expect(resp.status).toBe(200);
+    await resp.text();
+    expect(upstreamBody?.max_tokens).toBe(120_000);
+  });
+
   it("happy path streaming: 200 + text/event-stream with Anthropic bytes", async () => {
     const config = makeConfig();
     const auth = makeOauthAuth();
@@ -364,6 +386,26 @@ describe("/async/v1/messages (Anthropic)", () => {
 });
 
 describe("/async/v1/chat/completions (OpenAI)", () => {
+  it("translates then clamps oversized Chat max_tokens before bridging upstream", async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    const counters = { takeCount: { value: 0 }, settleCount: { value: 0 } };
+    const handler = createFetchHandler({
+      config: makeConfig({ defaultModel: "glm-5.3", models: ["glm-5.3"] }),
+      auth: makeOauthAuth(),
+      fetchImpl: makeMockFetch({ ...counters, onLlmRequest: (body) => { upstreamBody = body; } }),
+    });
+
+    const resp = await handler(new Request("http://localhost/async/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "glm-5.3", messages: [{ role: "user", content: "hi" }], max_tokens: 200_000 }),
+    }));
+
+    expect(resp.status).toBe(200);
+    await resp.text();
+    expect(upstreamBody?.max_tokens).toBe(120_000);
+  });
+
   it("B4: happy path stream — keepalives preserved + OpenAI chunks emitted", async () => {
     const config = makeConfig({ async: { enabled: true, origin: "https://zcode.z.ai", pollIntervalMs: 30, keepAliveIntervalMs: 5, maxWaitMs: 0, maxRetries: 3, settleTimeoutMs: 100, controlTimeoutMs: 1000, defaultModel: "" } });
     const auth = makeOauthAuth();

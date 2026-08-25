@@ -71,7 +71,7 @@ function mockUpstream(): typeof fetch {
 }
 
 describe("server routing", () => {
-  it("GET /v1/models returns model list", async () => {
+  it("GET /v1/models keeps the ordinary OpenAI list stable", async () => {
     const config = makeConfig({ auth: { mode: "apikey", apiKey: "test" } });
     const auth = new AuthManager({ mode: "apikey", provider: "zai", apiKey: "test" });
     const handler = createFetchHandler({ config, auth, fetchImpl: mockUpstream() });
@@ -82,6 +82,39 @@ describe("server routing", () => {
     expect(body.object).toBe("list");
     expect(body.data.length).toBeGreaterThan(0);
     expect(body.data[0].object).toBe("model");
+    expect(body.models).toBeUndefined();
+    expect(body.data.find((model: any) => model.id === "glm-5.3")).toEqual({
+      id: "glm-5.3",
+      object: "model",
+      owned_by: "zcode-proxy",
+    });
+  });
+
+  it("GET /v1/models?client_version returns safe Codex metadata and glm-5.3 operational cap", async () => {
+    const config = makeConfig({
+      auth: { mode: "apikey", apiKey: "test" },
+      models: ["glm-5.3", "glm-4.6v"],
+    });
+    const auth = new AuthManager({ mode: "apikey", provider: "zai", apiKey: "test" });
+    const handler = createFetchHandler({ config, auth, fetchImpl: mockUpstream() });
+
+    const resp = await handler(new Request("http://localhost/v1/models?client_version="));
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.models.map((model: any) => model.slug)).toEqual(["glm-4.6v", "glm-5.3"]);
+    expect(body.models.find((model: any) => model.slug === "glm-4.6v")).toEqual({
+      slug: "glm-4.6v",
+      display_name: "GLM 4.6V",
+    });
+    const glm53 = body.models.find((model: any) => model.slug === "glm-5.3");
+    expect(glm53).toEqual({
+      slug: "glm-5.3",
+      display_name: "GLM 5.3",
+      max_tokens: 120_000,
+    });
+    expect(glm53.context_window).toBeUndefined();
+    expect(glm53.input_modalities).toBeUndefined();
+    expect(glm53.supported_reasoning_levels).toBeUndefined();
   });
 
   it("POST /v1/chat/completions forwards to upstream", async () => {
@@ -255,7 +288,7 @@ describe("web UI", () => {
 
 describe("route handler exports", () => {
   it("handleListModels returns model list", () => {
-    const resp = handleListModels();
+    const resp = handleListModels(new Request("http://localhost/v1/models"), makeConfig());
     expect(resp.status).toBe(200);
   });
 

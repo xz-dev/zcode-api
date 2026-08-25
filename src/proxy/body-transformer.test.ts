@@ -30,6 +30,51 @@ describe("transformRequestBody — general", () => {
   });
 });
 
+describe("transformRequestBody — fields present at shared upstream boundary", () => {
+  it("clamps recognized oversized output fields without changing unrelated keys", () => {
+    const body = JSON.stringify({
+      model: "glm-5.3",
+      max_tokens: 120_001,
+      max_output_tokens: 200_000,
+      max_completion_tokens: 131_072,
+      reasoning_effort: "high",
+    });
+    const parsed = JSON.parse(transformRequestBody(body, { format: "openai" }) as string);
+    expect(parsed).toEqual({
+      model: "glm-5.3",
+      max_tokens: 120_000,
+      max_output_tokens: 120_000,
+      max_completion_tokens: 120_000,
+      reasoning_effort: "high",
+    });
+  });
+
+  it("clamps max_tokens in an Anthropic-shaped upstream body", () => {
+    const body = JSON.stringify({
+      model: "glm-5.3",
+      max_tokens: 120_001,
+      messages: [{ role: "user", content: [{ type: "text", text: "hi", cache_control: { type: "ephemeral" } }] }],
+    });
+    const parsed = JSON.parse(transformRequestBody(body, { format: "anthropic" }) as string);
+    expect(parsed.max_tokens).toBe(120_000);
+  });
+
+  it("preserves values at or below cap, invalid values, and unknown models", () => {
+    const cases = [
+      { model: "glm-5.3", max_tokens: 120_000 },
+      { model: "glm-5.3", max_tokens: 0 },
+      { model: "glm-5.3", max_tokens: -1 },
+      { model: "glm-5.3", max_tokens: "200000" },
+      { model: "unknown-model", max_tokens: 200_000 },
+      { model: "glm-5.2", max_tokens: 200_000 },
+    ];
+    for (const value of cases) {
+      const body = JSON.stringify(value);
+      expect(transformRequestBody(body, { format: "openai" })).toBe(body);
+    }
+  });
+});
+
 describe("transformRequestBody — stream_options.include_usage (OpenAI)", () => {
   it("injects stream_options.include_usage when stream:true and missing", () => {
     const body = JSON.stringify({ model: "glm-4.6", messages: [], stream: true });
