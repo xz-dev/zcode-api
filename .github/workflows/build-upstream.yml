@@ -1,23 +1,22 @@
-name: Build upstream image
+name: Build ZCode candidate
 
 on:
   push:
     branches: [ci]
-  workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: zcode-upstream-${{ github.ref }}
+  group: zcode-candidate-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  UPSTREAM_REPOSITORY: TriDefender/zcode-api
-  UPSTREAM_SHA: 728d4b454076be2a473303f343efc6cb3a8fde1d
+  SOURCE_REPOSITORY: xz-dev/zcode-api
+  SOURCE_SHA: 1d26630483fe62576fb9d034cffa331ec64cccdf
   IMAGE: ghcr.io/xz-dev/zcode-proxy
-  IMAGE_TAG: upstream-728d4b454076
+  IMAGE_TAG: candidate-1d26630483fe
 
 jobs:
   test:
@@ -25,11 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out exact upstream source
+      - name: Check out exact product source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
-          ref: ${{ env.UPSTREAM_SHA }}
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.SOURCE_SHA }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1"
@@ -38,34 +37,33 @@ jobs:
       - run: bun test
 
   docker:
-    name: Build and publish image
+    name: Build and publish amd64 image
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Check out exact upstream source
+      - name: Check out exact product source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
-          ref: ${{ env.UPSTREAM_SHA }}
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.SOURCE_SHA }}
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push exact upstream image
+      - name: Build and push exact candidate
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
           labels: |
-            org.opencontainers.image.source=https://github.com/${{ env.UPSTREAM_REPOSITORY }}
-            org.opencontainers.image.revision=${{ env.UPSTREAM_SHA }}
+            org.opencontainers.image.source=https://github.com/${{ env.SOURCE_REPOSITORY }}
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
             org.opencontainers.image.version=${{ env.IMAGE_TAG }}
       - name: Record immutable image
         run: echo '${{ env.IMAGE }}@${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
